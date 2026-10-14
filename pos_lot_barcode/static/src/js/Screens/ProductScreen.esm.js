@@ -46,37 +46,42 @@ patch(ProductScreen.prototype, {
             );
             return;
         }
+        // A variant whose product.template is not in the local model cannot be added to
+        // an order: core reads the template to build the line, and the modules overriding
+        // addLineToCurrentOrder (pos_sale, pos_loyalty) dereference it without checking.
+        const productTemplate = product.product_tmpl_id;
+        if (!productTemplate) {
+            this.sound.play("error");
+            this.barcodeReader.showNotFoundNotification(code);
+            return;
+        }
         await this.pos.addLineToCurrentOrder(
-            {product_id: product, product_tmpl_id: product.product_tmpl_id},
+            {product_id: product, product_tmpl_id: productTemplate},
             {code},
-            product.needToConfigure()
+            productTemplate.needToConfigure()
         );
         this.numberBuffer.reset();
-        this.showOptionalProductPopupIfNeeded(product);
+        this.showOptionalProductPopupIfNeeded(productTemplate);
     },
     async _getProductByLotBarcode(base_code) {
         const foundLotIds = await this._searchLotProduct(base_code.code);
         if (foundLotIds.length === 1) {
-            let product = this.pos.models["product.product"].get(
-                foundLotIds[0].product_id
-            );
-            if (!product) {
-                product = await this.pos.data.searchRead(
-                    "product.product",
-                    [
-                        ["id", "=", foundLotIds[0].product_id],
-                        ["available_in_pos", "=", true],
-                    ],
-                    this.pos.data.fields["product.product"]
-                );
-
-                if (product.length === 0) {
+            const productId = foundLotIds[0].product_id;
+            let product = this.pos.models["product.product"].get(productId);
+            if (!product || !product.product_tmpl_id) {
+                // Load the product template together with its variants, the way the core
+                // barcode action does. Reading the variant on its own can leave it in the
+                // local model without its template (a stale or partial reload of the
+                // product data does the same), and such a variant cannot be sold.
+                await this.pos.loadNewProducts([
+                    ["product_variant_ids.id", "in", [productId]],
+                    ["available_in_pos", "=", true],
+                ]);
+                product = this.pos.models["product.product"].get(productId);
+                if (!product || !product.product_tmpl_id) {
                     // Not available in POS
                     return false;
                 }
-
-                // SearchRead returns an array, even when searching by id
-                product = product[0];
                 await this.pos.processProductAttributes();
             }
             return product;

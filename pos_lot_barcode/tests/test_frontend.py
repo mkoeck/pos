@@ -87,6 +87,22 @@ class TestLotScanning(TestPointOfSaleHttpCommon):
             timeout=60,
         )
 
+    def test_scan_lot_number_stale_product_template(self):
+        """
+        Test that scanning a lot still works when the register holds the variant but
+        cannot resolve its product.template locally (the state a partial or stale
+        product reload leaves behind).
+        """
+        ICP = self.env["ir.config_parameter"].sudo()
+        ICP.set_param("point_of_sale.limited_product_count", 1)
+        self.main_pos_config.with_user(self.pos_user).open_ui()
+        self.start_tour(
+            f"/pos/ui?config_id={self.main_pos_config.id}",
+            "LotScanningTourStaleProductTemplate",
+            login="pos_user",
+            timeout=60,
+        )
+
     def test_scan_to_input_lot_number(self):
         self.main_pos_config.with_user(self.pos_user).open_ui()
         self.start_tour(
